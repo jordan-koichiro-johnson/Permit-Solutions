@@ -140,18 +140,21 @@ async function login(log) {
     throw new Error('EVERETT_WA_USERNAME and EVERETT_WA_PASSWORD must be set in .env');
   }
   log('Logging in...');
-  const loginPage = await get('/eTRAKiT/dashboard.aspx');
-  const fields    = extractHiddenFields(loginPage.text());
+  // Hit search page — redirects to login.aspx with a return URL
+  const redirected = await get('/eTRAKiT/Search/permit.aspx');
+  const loginPath  = redirected.finalPath;
+  const fields     = extractHiddenFields(redirected.text());
 
-  const res = await post(loginPage.finalPath, {
+  const res = await post(loginPath, {
     ...fields,
-    '__EVENTTARGET':                       'ctl00$cplMain$lnkBtnPublicLogin',
-    '__EVENTARGUMENT':                     '',
-    'ctl00$cplMain$txtPublicUserId':       USERNAME,
-    'ctl00$cplMain$txtPublicUserPassword': PASSWORD,
+    '__EVENTTARGET':                   '',
+    '__EVENTARGUMENT':                 '',
+    'ctl00$cplMain$txtPublicUserName': USERNAME,
+    'ctl00$cplMain$txtPublicPassword': PASSWORD,
+    'ctl00$cplMain$btnPublicLogin':    'Login',
   });
 
-  if (!res.text().includes('lnkBtnLogout') && !res.text().includes('Log Out')) {
+  if (res.finalPath.includes('login.aspx')) {
     throw new Error('Login failed — check EVERETT_WA_USERNAME and EVERETT_WA_PASSWORD in .env');
   }
   log('Login successful.');
@@ -183,9 +186,8 @@ async function fetchAllPermitsCSV(log) {
   const ef         = extractHiddenFields(searchRes.text());
   const exportRes  = await post('/eTRAKiT/Search/permit.aspx', {
     ...ef,
-    '__EVENTTARGET':   '',
+    '__EVENTTARGET':   'ctl00$cplMain$btnExportToExcel',
     '__EVENTARGUMENT': '',
-    'ctl00$cplMain$btnExportToExcel': 'Export To Excel',
   });
 
   if (!exportRes.contentType.includes('csv') && !exportRes.contentType.includes('excel') && !exportRes.contentType.includes('spreadsheet')) {

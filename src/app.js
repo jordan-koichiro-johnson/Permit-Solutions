@@ -6,6 +6,9 @@ const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
 const { initDb, pool } = require('./db/index');
 
+const rateLimit      = require('express-rate-limit');
+const pinoHttp       = require('pino-http');
+const logger         = require('./logger');
 const permitsRouter  = require('./routes/permits');
 const checkRouter    = require('./routes/check');
 const settingsRouter = require('./routes/settings');
@@ -36,6 +39,7 @@ if (!SESSION_SECRET) {
 app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), webhookHandler);
 
 // ── Middleware ─────────────────────────────────────────────────────────────────
+app.use(pinoHttp({ logger, autoLogging: { ignore: (req) => req.url === '/health' } }));
 app.use(express.json());
 
 app.use(session({
@@ -54,17 +58,45 @@ app.use(session({
 // Static files served before auth — login page must be accessible
 app.use(express.static(path.join(__dirname, '../public')));
 
+// ── Rate limiters ──────────────────────────────────────────────────────────────
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// Stricter limit for scraper-heavy endpoints
+const heavyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+// ── Health check (no auth) ────────────────────────────────────────────────────
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', uptime: Math.floor(process.uptime()), db: 'ok' });
+  } catch (err) {
+    res.status(503).json({ status: 'error', db: 'unavailable' });
+  }
+});
+
 // ── Auth routes (no requireAuth) ──────────────────────────────────────────────
 app.use('/api/auth', authRouter);
 
 // ── Protected API routes ───────────────────────────────────────────────────────
-app.use('/api/permits',  requireAuth, attachTenant, permitsRouter);
-app.use('/api/check',    requireAuth, attachTenant, checkRouter);
-app.use('/api/settings', requireAuth, attachTenant, settingsRouter);
-app.use('/api/import',   requireAuth, attachTenant, importRouter);
-app.use('/api/users',    usersRouter);
-app.use('/api/tenants',  tenantsRouter);
-app.use('/api/billing',  requireAuth, attachTenant, billingRouter);
+app.use('/api/permits',  apiLimiter, requireAuth, attachTenant, permitsRouter);
+app.use('/api/check',    heavyLimiter, requireAuth, attachTenant, checkRouter);
+app.use('/api/settings', apiLimiter, requireAuth, attachTenant, settingsRouter);
+app.use('/api/import',   heavyLimiter, requireAuth, attachTenant, importRouter);
+app.use('/api/users',    apiLimiter, usersRouter);
+app.use('/api/tenants',  apiLimiter, tenantsRouter);
+app.use('/api/billing',  apiLimiter, requireAuth, attachTenant, billingRouter);
 
 // GET /api/scrapers — convenience alias at root level
 app.get('/api/scrapers', requireAuth, (req, res) => {
@@ -73,6 +105,15 @@ app.get('/api/scrapers', requireAuth, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Global API error handler ───────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  (req.log || logger).error({ err }, 'Request error');
+  if (res.headersSent) return next(err);
+  const status = err.status || err.statusCode || 500;
+  const message = status < 500 ? err.message : 'Internal server error';
+  res.status(status).json({ error: message });
 });
 
 // ── Catch-all: serve index.html for any non-API route (SPA fallback) ──────────
@@ -84,7 +125,7 @@ app.get('*', (req, res) => {
 async function main() {
   await initDb();
   app.listen(PORT, () => {
-    console.log(`\n🚀 Permit Tracker running at http://localhost:${PORT}\n`);
+    logger.info(`Permit Tracker running at http://localhost:${PORT}`);
     scheduler.start();
   });
 }
@@ -93,5 +134,24 @@ main().catch(err => {
   console.error('Startup failed:', err);
   process.exit(1);
 });
+
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason }, 'Unhandled rejection');
+});
+process.on('uncaughtException', (err) => {
+  logger.error({ err }, 'Uncaught exception');
+  process.exit(1);
+});
+
+// ── Graceful shutdown ───────────────────────────────────────────────────────
+async function shutdown(signal) {
+  logger.info(`${signal} received — shutting down gracefully`);
+  scheduler.stop();
+  await pool.end();
+  logger.info('DB pool closed. Exiting.');
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
 
 module.exports = app;

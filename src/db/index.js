@@ -4,6 +4,10 @@ const bcrypt = require('bcryptjs');
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 20,
+  min: 2,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 async function initDb() {
@@ -91,6 +95,22 @@ async function initDb() {
   // Migrate tenant_states: add stripe_item_id column
   await pool.query(`
     ALTER TABLE tenant_states ADD COLUMN IF NOT EXISTS stripe_item_id TEXT;
+  `);
+
+  // Indexes for performance at scale
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_permits_tenant        ON permits(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_permits_tenant_active ON permits(tenant_id, active);
+    CREATE INDEX IF NOT EXISTS idx_permits_scraper       ON permits(scraper_name);
+    CREATE INDEX IF NOT EXISTS idx_permits_last_checked  ON permits(last_checked);
+    CREATE INDEX IF NOT EXISTS idx_history_permit        ON status_history(permit_id);
+    CREATE INDEX IF NOT EXISTS idx_history_tenant        ON status_history(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_history_checked_at    ON status_history(checked_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_users_tenant          ON users(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_users_username        ON users(LOWER(username));
+    CREATE INDEX IF NOT EXISTS idx_settings_tenant       ON settings(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_tenants_slug          ON tenants(slug);
+    CREATE INDEX IF NOT EXISTS idx_tenant_states_tenant  ON tenant_states(tenant_id);
   `);
 
   // Seed default tenant

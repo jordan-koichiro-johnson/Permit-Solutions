@@ -5,4 +5,5 @@ module.exports = createETRAKiTScraper({
   name:        'shoreline-wa',
   displayName: 'Shoreline, WA',
   host:        'permits.shorelinewa.gov',
+  state:       'WA',
 });

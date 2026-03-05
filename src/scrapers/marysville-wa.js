@@ -10,4 +10,5 @@ module.exports = createETRAKiTScraper({
   basePath:    '',
   usernameEnv: 'MARYSVILLE_WA_USERNAME',
   passwordEnv: 'MARYSVILLE_WA_PASSWORD',
+  state:       'WA',
 });

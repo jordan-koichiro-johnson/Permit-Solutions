@@ -22,4 +22,17 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, attachTenant, requireAdmin, requireSuperAdmin };
+async function attachPlan(req, res, next) {
+  try {
+    const { PLANS } = require('../config/plans');
+    const { getTenantPlan } = require('../db/queries');
+    const { plan, states } = await getTenantPlan(req.tenantId);
+    const limits = PLANS[plan] || PLANS.free;
+    req.tenantPlan = { plan, states, ...limits };
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { requireAuth, attachTenant, requireAdmin, requireSuperAdmin, attachPlan };

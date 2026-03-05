@@ -13,6 +13,8 @@ const importRouter   = require('./routes/import');
 const authRouter     = require('./routes/auth');
 const usersRouter    = require('./routes/users');
 const tenantsRouter  = require('./routes/tenants');
+const billingRouter  = require('./routes/billing');
+const { webhookHandler } = require('./routes/stripe');
 const { requireAuth, attachTenant } = require('./middleware/auth');
 const { listScrapers } = require('./scrapers/index');
 const scheduler      = require('./services/scheduler');
@@ -29,6 +31,9 @@ const SESSION_SECRET = process.env.SESSION_SECRET;
 if (!SESSION_SECRET) {
   console.warn('[AUTH] SESSION_SECRET not set — using random fallback. Sessions will not survive restarts. Set SESSION_SECRET in .env.');
 }
+
+// ── Stripe webhook (raw body — MUST be before express.json) ───────────────────
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), webhookHandler);
 
 // ── Middleware ─────────────────────────────────────────────────────────────────
 app.use(express.json());
@@ -59,6 +64,7 @@ app.use('/api/settings', requireAuth, attachTenant, settingsRouter);
 app.use('/api/import',   requireAuth, attachTenant, importRouter);
 app.use('/api/users',    usersRouter);
 app.use('/api/tenants',  tenantsRouter);
+app.use('/api/billing',  requireAuth, attachTenant, billingRouter);
 
 // GET /api/scrapers — convenience alias at root level
 app.get('/api/scrapers', requireAuth, (req, res) => {

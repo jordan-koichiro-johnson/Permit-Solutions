@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, requireSuperAdmin } = require('../middleware/auth');
-const { listTenants, createTenant, updateTenant, deleteTenant } = require('../db/queries');
+const { listTenants, createTenant, updateTenant, deleteTenant, getTenantStates } = require('../db/queries');
+const { syncAddState, syncRemoveState } = require('./billing');
 
 const router = express.Router();
 
@@ -66,6 +67,50 @@ router.delete('/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error('[TENANTS] delete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── GET /api/tenants/:id/states ────────────────────────────────────────────
+router.get('/:id/states', async (req, res) => {
+  try {
+    const states = await getTenantStates(Number(req.params.id));
+    res.json({ states });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── POST /api/tenants/:id/states ───────────────────────────────────────────
+router.post('/:id/states', async (req, res) => {
+  const tenantId = Number(req.params.id);
+  const { state } = req.body || {};
+  if (!state || !/^[A-Za-z]{2}$/.test(state)) {
+    return res.status(400).json({ error: 'state must be a 2-letter code' });
+  }
+  try {
+    await syncAddState(tenantId, state.toUpperCase());
+    const states = await getTenantStates(tenantId);
+    res.json({ ok: true, states });
+  } catch (err) {
+    console.error('[TENANTS] add state error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ── DELETE /api/tenants/:id/states/:code ───────────────────────────────────
+router.delete('/:id/states/:code', async (req, res) => {
+  const tenantId = Number(req.params.id);
+  const code = (req.params.code || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return res.status(400).json({ error: 'state must be a 2-letter code' });
+  }
+  try {
+    await syncRemoveState(tenantId, code);
+    const states = await getTenantStates(tenantId);
+    res.json({ ok: true, states });
+  } catch (err) {
+    console.error('[TENANTS] remove state error:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

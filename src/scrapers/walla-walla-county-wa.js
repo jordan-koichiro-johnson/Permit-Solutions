@@ -9,4 +9,5 @@ module.exports = createETRAKiTScraper({
   host:        'wala-trk.aspgov.com',
   usernameEnv: 'WALLA_WALLA_COUNTY_WA_USERNAME',
   passwordEnv: 'WALLA_WALLA_COUNTY_WA_PASSWORD',
+  state:       'WA',
 });

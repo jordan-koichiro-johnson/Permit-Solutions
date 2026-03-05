@@ -40,8 +40,21 @@ function getScraperInstance(name, config = {}) {
 function listScrapers() {
   return Object.entries(scrapers).map(([name, Cls]) => {
     const instance = new Cls();
-    return { name, displayName: instance.displayName };
+    return { name, displayName: instance.displayName, state: instance.state };
   });
 }
 
-module.exports = { scrapers, getScraperInstance, listScrapers };
+/**
+ * Derive a 2-letter state code from a scraper name.
+ * e.g. 'bellingham-wa' → 'WA', 'walla-walla-county-wa' → 'WA'
+ * Returns null for scrapers with no state suffix (e.g. 'example-city').
+ */
+function stateFromScraper(scraperName) {
+  if (!scraperName) return null;
+  const parts = scraperName.split('-');
+  const last = parts[parts.length - 1];
+  if (/^[a-z]{2}$/.test(last) && last !== 'ty') return last.toUpperCase();
+  return null;
+}
+
+module.exports = { scrapers, getScraperInstance, listScrapers, stateFromScraper };

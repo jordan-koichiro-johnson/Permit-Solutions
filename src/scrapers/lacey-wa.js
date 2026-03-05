@@ -9,4 +9,5 @@ module.exports = createETRAKiTScraper({
   host:        'trakitweb.ci.lacey.wa.us',
   usernameEnv: 'LACEY_WA_USERNAME',
   passwordEnv: 'LACEY_WA_PASSWORD',
+  state:       'WA',
 });

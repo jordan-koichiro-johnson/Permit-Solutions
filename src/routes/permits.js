@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const queries = require('../db/queries');
+const { stateFromScraper } = require('../scrapers/index');
+const { syncAddState } = require('./billing');
 
 // GET /api/permits — list all permits
 router.get('/', async (req, res) => {
@@ -43,6 +45,15 @@ router.post('/', async (req, res) => {
       scraper_name: scraper_name.trim(),
       notes: notes?.trim() || null,
     });
+
+    // Auto-lock the state for this tenant on first use
+    const stateCode = stateFromScraper(scraper_name.trim());
+    if (stateCode) {
+      syncAddState(req.tenantId, stateCode).catch(err =>
+        console.error('[permits] auto-add state failed:', err.message)
+      );
+    }
+
     res.status(201).json(permit);
   } catch (err) {
     res.status(500).json({ error: err.message });

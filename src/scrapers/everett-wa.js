@@ -6,4 +6,5 @@ module.exports = createETRAKiTScraper({
   host:        'onlinepermits.everettwa.gov',
   usernameEnv: 'EVERETT_WA_USERNAME',
   passwordEnv: 'EVERETT_WA_PASSWORD',
+  state:       'WA',
 });

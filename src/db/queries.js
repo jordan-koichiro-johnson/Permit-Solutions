@@ -302,6 +302,93 @@ async function deleteTenant(id) {
   await pool.query(`DELETE FROM tenants WHERE id = $1`, [id]);
 }
 
+// ─── Billing / Plan ───────────────────────────────────────────────────────────
+
+async function getTenantPlan(tenantId) {
+  const { rows } = await pool.query(
+    `SELECT plan FROM tenants WHERE id = $1`,
+    [tenantId]
+  );
+  const plan = rows[0]?.plan || 'free';
+  const states = await getTenantStates(tenantId);
+  return { plan, states };
+}
+
+async function getTenantStates(tenantId) {
+  const { rows } = await pool.query(
+    `SELECT state_code FROM tenant_states WHERE tenant_id = $1 ORDER BY state_code`,
+    [tenantId]
+  );
+  return rows.map(r => r.state_code);
+}
+
+async function addTenantState(tenantId, stateCode) {
+  await pool.query(
+    `INSERT INTO tenant_states (tenant_id, state_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [tenantId, stateCode.toUpperCase()]
+  );
+}
+
+async function removeTenantState(tenantId, stateCode) {
+  await pool.query(
+    `DELETE FROM tenant_states WHERE tenant_id = $1 AND state_code = $2`,
+    [tenantId, stateCode.toUpperCase()]
+  );
+}
+
+async function countTenantUsers(tenantId) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*) AS count FROM users WHERE tenant_id = $1 AND active = TRUE`,
+    [tenantId]
+  );
+  return parseInt(rows[0].count, 10);
+}
+
+async function setTenantPlan(tenantId, plan) {
+  await pool.query(
+    `UPDATE tenants SET plan = $1 WHERE id = $2`,
+    [plan, tenantId]
+  );
+}
+
+async function getTenantByStripeCustomer(stripeCustomerId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM tenants WHERE stripe_customer_id = $1 LIMIT 1`,
+    [stripeCustomerId]
+  );
+  return rows[0] || null;
+}
+
+async function getTenantByStripeSubscription(subId) {
+  const { rows } = await pool.query(
+    `SELECT * FROM tenants WHERE stripe_subscription_id = $1 LIMIT 1`,
+    [subId]
+  );
+  return rows[0] || null;
+}
+
+async function setTenantStripe(tenantId, customerId, subscriptionId) {
+  await pool.query(
+    `UPDATE tenants SET stripe_customer_id = $1, stripe_subscription_id = $2 WHERE id = $3`,
+    [customerId, subscriptionId, tenantId]
+  );
+}
+
+async function setTenantStateStripeItem(tenantId, stateCode, stripeItemId) {
+  await pool.query(
+    `UPDATE tenant_states SET stripe_item_id = $1 WHERE tenant_id = $2 AND state_code = $3`,
+    [stripeItemId, tenantId, stateCode.toUpperCase()]
+  );
+}
+
+async function getTenantStateStripeItem(tenantId, stateCode) {
+  const { rows } = await pool.query(
+    `SELECT stripe_item_id FROM tenant_states WHERE tenant_id = $1 AND state_code = $2`,
+    [tenantId, stateCode.toUpperCase()]
+  );
+  return rows[0] ? rows[0].stripe_item_id : null;
+}
+
 module.exports = {
   getAllPermits,
   getActivePermits,
@@ -334,4 +421,15 @@ module.exports = {
   createTenant,
   updateTenant,
   deleteTenant,
+  getTenantPlan,
+  getTenantStates,
+  addTenantState,
+  removeTenantState,
+  countTenantUsers,
+  setTenantPlan,
+  getTenantByStripeCustomer,
+  getTenantByStripeSubscription,
+  setTenantStripe,
+  setTenantStateStripeItem,
+  getTenantStateStripeItem,
 };

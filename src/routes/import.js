@@ -4,15 +4,20 @@ const everett    = require('../scripts/import-everett');
 const bellingham = require('../scripts/import-bellingham');
 const marysville = require('../scripts/import-marysville');
 const { getSetting } = require('../db/queries');
+const { attachPlan } = require('../middleware/auth');
 
 const IMPORTERS = [
-  { name: 'bellingham', displayName: 'Bellingham, WA' },
-  { name: 'everett',    displayName: 'Everett, WA'    },
-  { name: 'marysville', displayName: 'Marysville, WA' },
+  { name: 'bellingham', displayName: 'Bellingham, WA', state: 'WA' },
+  { name: 'everett',    displayName: 'Everett, WA',    state: 'WA' },
+  { name: 'marysville', displayName: 'Marysville, WA', state: 'WA' },
 ];
 
-// GET /api/import/list — list available importers
-router.get('/list', (req, res) => res.json(IMPORTERS));
+// GET /api/import/list — return importers filtered by tenant's unlocked states
+router.get('/list', attachPlan, (req, res) => {
+  const { states } = req.tenantPlan;
+  const visible = IMPORTERS.filter(i => i.state === null || states.includes(i.state));
+  res.json(visible);
+});
 
 async function getContractorName(tenantId) {
   const name = await getSetting(tenantId, 'contractor_name');
@@ -22,8 +27,15 @@ async function getContractorName(tenantId) {
   return name.trim();
 }
 
+function requireImport(req, res, next) {
+  if (!req.tenantPlan || !req.tenantPlan.canImport) {
+    return res.status(403).json({ error: 'Importing requires a paid plan. Upgrade in Settings → Billing.' });
+  }
+  next();
+}
+
 // POST /api/import/everett
-router.post('/everett', async (req, res) => {
+router.post('/everett', attachPlan, requireImport, async (req, res) => {
   const logs = [];
   const log  = msg => { logs.push(msg); console.log('[import]', msg); };
   try {
@@ -36,7 +48,7 @@ router.post('/everett', async (req, res) => {
 });
 
 // POST /api/import/bellingham
-router.post('/bellingham', async (req, res) => {
+router.post('/bellingham', attachPlan, requireImport, async (req, res) => {
   const logs = [];
   const log  = msg => { logs.push(msg); console.log('[import]', msg); };
   try {
@@ -49,7 +61,7 @@ router.post('/bellingham', async (req, res) => {
 });
 
 // POST /api/import/marysville
-router.post('/marysville', async (req, res) => {
+router.post('/marysville', attachPlan, requireImport, async (req, res) => {
   const logs = [];
   const log  = msg => { logs.push(msg); console.log('[import]', msg); };
   try {

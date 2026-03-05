@@ -1,12 +1,14 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { requireAuth, requireAdmin, requireSuperAdmin, attachTenant } = require('../middleware/auth');
+const { requireAuth, requireAdmin, requireSuperAdmin, attachTenant, attachPlan } = require('../middleware/auth');
+const { PLANS } = require('../config/plans');
 const {
   listUsers, listAllUsers,
   getUserById, getUserByIdCrossTenant,
   createUser, updateUser, updateUserCrossTenant,
   deleteUser, deleteUserCrossTenant,
   updateUserPassword,
+  countTenantUsers, getTenantPlan,
 } = require('../db/queries');
 
 const router = express.Router();
@@ -48,6 +50,20 @@ router.post('/', requireAdmin, async (req, res) => {
     : req.tenantId;
 
   const assignedRole = (req.session.isSuperAdmin && role) ? role : 'user';
+
+  // Check user limit for non-super-admins
+  if (!req.session.isSuperAdmin) {
+    const { plan } = await getTenantPlan(targetTenantId);
+    const limits = PLANS[plan] || PLANS.free;
+    if (limits.userLimit !== null) {
+      const count = await countTenantUsers(targetTenantId);
+      if (count >= limits.userLimit) {
+        return res.status(403).json({
+          error: `Your ${limits.label} plan allows up to ${limits.userLimit} user${limits.userLimit === 1 ? '' : 's'}. Upgrade your plan in Settings → Billing to add more users.`,
+        });
+      }
+    }
+  }
 
   try {
     const hash = await bcrypt.hash(password, 12);

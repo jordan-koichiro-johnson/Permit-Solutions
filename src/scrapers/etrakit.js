@@ -155,10 +155,12 @@ function createETRAKiTScraper({
   basePath    = '/eTRAKiT',
   usernameEnv = null,
   passwordEnv = null,
+  state       = null,
 }) {
   class ETRAKiTScraper extends BasePermitScraper {
     get name()        { return name; }
     get displayName() { return displayName; }
+    get state()       { return state; }
 
     async checkStatus(permitNumber) {
       // Per-request isolated cookie jar

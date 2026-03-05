@@ -32,6 +32,15 @@ class BasePermitScraper {
   }
 
   /**
+   * Two-letter US state code this scraper belongs to (e.g. 'WA', 'OR').
+   * Return null for demo/example scrapers that are always accessible.
+   * @returns {string|null}
+   */
+  get state() {
+    return null;
+  }
+
+  /**
    * Fetch the current status of a single permit.
    *
    * @param {string} permitNumber  The permit number as entered by the user

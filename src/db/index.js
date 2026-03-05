@@ -70,6 +70,29 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
   `);
 
+  // Migrate tenants table: add plan + Stripe columns
+  await pool.query(`
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free';
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+    ALTER TABLE tenants ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+  `);
+
+  // Create tenant_states table
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tenant_states (
+      id         SERIAL PRIMARY KEY,
+      tenant_id  INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      state_code TEXT NOT NULL,
+      added_at   TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(tenant_id, state_code)
+    );
+  `);
+
+  // Migrate tenant_states: add stripe_item_id column
+  await pool.query(`
+    ALTER TABLE tenant_states ADD COLUMN IF NOT EXISTS stripe_item_id TEXT;
+  `);
+
   // Seed default tenant
   const { rows: tenants } = await pool.query(`SELECT id FROM tenants LIMIT 1`);
   if (tenants.length === 0) {

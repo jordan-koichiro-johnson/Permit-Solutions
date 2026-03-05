@@ -10,4 +10,5 @@ module.exports = createETRAKiTScraper({
   basePath:    '/etrakit3',
   usernameEnv: 'PASCO_WA_USERNAME',
   passwordEnv: 'PASCO_WA_PASSWORD',
+  state:       'WA',
 });

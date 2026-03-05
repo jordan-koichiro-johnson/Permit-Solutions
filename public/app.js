@@ -44,6 +44,9 @@ let pendingDeleteId = null;
 // ── Current user context (set after /me) ──────────────────────────────────────
 let currentUser = null; // { id, username, role, isSuperAdmin }
 
+// ── Current plan (loaded on init) ─────────────────────────────────────────────
+let currentPlan = null; // { plan, canCheck, canImport, userLimit, states, … }
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 const toastEl = document.getElementById('toast');
@@ -61,13 +64,31 @@ document.querySelectorAll('.nav-link').forEach(link => {
   link.addEventListener('click', e => {
     e.preventDefault();
     const page = link.dataset.page;
-    document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    link.classList.add('active');
-    document.getElementById(`page-${page}`).classList.add('active');
-    if (page === 'settings') loadSettings();
+    showPage(page);
   });
 });
+
+function showPage(page) {
+  document.querySelectorAll('.nav-link').forEach(l => {
+    l.classList.toggle('active', l.dataset.page === page);
+  });
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(`page-${page}`).classList.add('active');
+  if (page === 'settings') loadSettings();
+}
+
+function switchSubtab(tab) {
+  document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+  const btn = document.querySelector(`.sub-tab-btn[data-subtab="${tab}"]`);
+  if (btn) btn.classList.add('active');
+  const content = document.getElementById(`subtab-${tab}`);
+  if (content) content.classList.add('active');
+  if (tab === 'users')   loadUsers();
+  if (tab === 'tenants') loadTenants();
+  if (tab === 'general') loadSettings();
+  if (tab === 'billing') loadBilling();
+}
 
 // ── Modal helpers ─────────────────────────────────────────────────────────────
 
@@ -418,6 +439,13 @@ document.getElementById('import-search').addEventListener('input', e => {
 
 // Run import
 document.getElementById('btn-import-run').addEventListener('click', async () => {
+  if (currentPlan && !currentPlan.canImport) {
+    importDropdown.setAttribute('hidden', '');
+    document.getElementById('upgrade-modal-msg').textContent =
+      'Importing is not available on the Free plan. Upgrade to Starter or Business to import permits.';
+    openModal('modal-upgrade');
+    return;
+  }
   const checked = [...document.querySelectorAll('#import-city-list input[type="checkbox"]:checked')];
   if (checked.length === 0) return;
 
@@ -449,6 +477,12 @@ document.getElementById('btn-import-run').addEventListener('click', async () => 
 
 const btnCheckAll = document.getElementById('btn-check-all');
 btnCheckAll.addEventListener('click', async () => {
+  if (currentPlan && !currentPlan.canCheck) {
+    document.getElementById('upgrade-modal-msg').textContent =
+      'Bulk permit checking is not available on the Free plan. Upgrade to Starter or Business to check all permits at once.';
+    openModal('modal-upgrade');
+    return;
+  }
   btnCheckAll.classList.add('loading');
   btnCheckAll.disabled = true;
   try {
@@ -776,6 +810,14 @@ function applyRoleVisibility(user) {
   }
 }
 
+function applyPlanLockIcons() {
+  const lockCheck  = document.getElementById('check-lock-icon');
+  const lockImport = document.getElementById('import-lock-icon');
+  if (!currentPlan) return;
+  if (lockCheck)  lockCheck.style.display  = currentPlan.canCheck  ? 'none' : '';
+  if (lockImport) lockImport.style.display = currentPlan.canImport ? 'none' : '';
+}
+
 document.getElementById('login-form').addEventListener('submit', async e => {
   e.preventDefault();
   const username = document.getElementById('login-username').value.trim();
@@ -803,6 +845,7 @@ document.getElementById('login-form').addEventListener('submit', async e => {
     if (appShell.style.display !== 'none') {
       loadPermits();
       loadImportCities();
+      loadBilling();
     }
   } catch (err) {
     errorEl.textContent = 'Network error — please try again';
@@ -821,17 +864,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 // ── Settings Sub-tabs ─────────────────────────────────────────────────────────
 
 document.querySelectorAll('.sub-tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.dataset.subtab;
-    document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`subtab-${tab}`).classList.add('active');
-
-    if (tab === 'users') loadUsers();
-    if (tab === 'tenants') loadTenants();
-    if (tab === 'general') loadSettings();
-  });
+  btn.addEventListener('click', () => switchSubtab(btn.dataset.subtab));
 });
 
 // ── Change My Password ────────────────────────────────────────────────────────
@@ -1096,13 +1129,17 @@ async function loadTenants() {
 function renderTenantsTable() {
   const tbody = document.getElementById('tenants-tbody');
   if (!allTenants.length) {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-msg">No tenants found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-msg">No tenants found.</td></tr>`;
     return;
   }
   tbody.innerHTML = allTenants.map(t => `
     <tr>
       <td><strong>${escapeHtml(t.name)}</strong></td>
       <td><code style="font-size:.8rem;background:var(--surface2);padding:2px 7px;border-radius:4px">${escapeHtml(t.slug)}</code></td>
+      <td><span class="plan-badge plan-badge-${t.plan || 'free'}">${t.plan || 'free'}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="openTenantStatesModal(${t.id}, '${escapeHtml(t.name)}')">States</button>
+      </td>
       <td style="color:var(--text-muted);font-size:.8rem">${formatDate(t.created_at)}</td>
       <td>
         <div class="row-actions">
@@ -1112,6 +1149,61 @@ function renderTenantsTable() {
       </td>
     </tr>
   `).join('');
+}
+
+// ── Tenant state management (super-admin) ─────────────────────────────────────
+
+let activeTenantStatesId = null;
+
+async function openTenantStatesModal(tenantId, tenantName) {
+  activeTenantStatesId = tenantId;
+  document.getElementById('modal-tenant-states-title').textContent = `States — ${tenantName}`;
+  document.getElementById('modal-tenant-state-select').value = '';
+  await refreshTenantStatesModal();
+  openModal('modal-tenant-states');
+}
+
+async function refreshTenantStatesModal() {
+  try {
+    const { states } = await GET(`/tenants/${activeTenantStatesId}/states`);
+    const listEl = document.getElementById('modal-tenant-states-list');
+    if (!states.length) {
+      listEl.innerHTML = '<p class="hint" style="margin:0">No states unlocked.</p>';
+    } else {
+      listEl.innerHTML = states.map(code => `
+        <span class="state-tag">
+          ${escapeHtml(code)}
+          <button class="state-tag-remove" onclick="removeTenantStateAdmin('${escapeHtml(code)}')" title="Remove">×</button>
+        </span>
+      `).join('');
+    }
+  } catch (err) {
+    showToast('Failed to load states: ' + err.message, 'error');
+  }
+}
+
+async function addTenantStateAdmin() {
+  const sel = document.getElementById('modal-tenant-state-select');
+  const code = sel ? sel.value : '';
+  if (!code) return;
+  try {
+    await POST(`/tenants/${activeTenantStatesId}/states`, { state: code });
+    sel.value = '';
+    await refreshTenantStatesModal();
+    showToast(`${code} added.`, 'success');
+  } catch (err) {
+    showToast('Failed to add state: ' + err.message, 'error');
+  }
+}
+
+async function removeTenantStateAdmin(code) {
+  try {
+    await api('DELETE', `/tenants/${activeTenantStatesId}/states/${code}`);
+    await refreshTenantStatesModal();
+    showToast(`${code} removed.`, 'success');
+  } catch (err) {
+    showToast('Failed to remove state: ' + err.message, 'error');
+  }
 }
 
 document.getElementById('btn-add-tenant').addEventListener('click', () => {
@@ -1185,6 +1277,167 @@ document.getElementById('btn-confirm-delete-tenant').addEventListener('click', a
   pendingDeleteTenantId = null;
 });
 
+// ── Billing ───────────────────────────────────────────────────────────────────
+
+async function loadBilling() {
+  // Check for successful checkout redirect
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('checkout') === 'success') {
+    showToast('Subscription activated!', 'success');
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  try {
+    const b = await GET('/billing');
+    currentPlan = b;
+    applyPlanLockIcons();
+    renderBillingTab(b);
+  } catch (err) {
+    console.error('Failed to load billing info:', err);
+  }
+}
+
+async function startCheckout(planKey) {
+  try {
+    const res = await POST('/billing/checkout', { plan: planKey });
+    if (res.url) window.location.href = res.url;
+  } catch (err) {
+    showToast('Checkout failed: ' + err.message, 'error');
+  }
+}
+
+async function openPortal() {
+  try {
+    const res = await POST('/billing/portal', {});
+    if (res.url) window.location.href = res.url;
+  } catch (err) {
+    showToast('Could not open billing portal: ' + err.message, 'error');
+  }
+}
+
+function renderBillingTab(b) {
+  // Plan badge
+  const badge = document.getElementById('billing-plan-badge');
+  if (badge) {
+    badge.textContent = b.label;
+    badge.className = `plan-badge plan-badge-${b.plan}`;
+  }
+
+  // Price
+  const priceEl = document.getElementById('billing-plan-price');
+  if (priceEl) {
+    priceEl.textContent = b.price === 0 ? 'Free' : `$${b.price}/mo`;
+  }
+
+  // User count
+  const userCountEl = document.getElementById('billing-user-count');
+  if (userCountEl) {
+    const limit = b.userLimit === null ? '∞' : b.userLimit;
+    userCountEl.textContent = `${b.userCount} / ${limit}`;
+  }
+
+  // Feature flags
+  const canCheckEl  = document.getElementById('billing-can-check');
+  const canImportEl = document.getElementById('billing-can-import');
+  if (canCheckEl)  canCheckEl.innerHTML  = b.canCheck  ? '<span class="plan-feature-on">Enabled</span>'  : '<span class="plan-feature-off">Upgrade required</span>';
+  if (canImportEl) canImportEl.innerHTML = b.canImport ? '<span class="plan-feature-on">Enabled</span>' : '<span class="plan-feature-off">Upgrade required</span>';
+
+  // Manage Billing button (shown when there's an active subscription)
+  const manageRow = document.getElementById('billing-manage-row');
+  if (manageRow) {
+    manageRow.style.display = b.hasActiveSubscription ? '' : 'none';
+  }
+
+  // Upgrade CTA — show for free plan
+  const ctaEl = document.getElementById('billing-upgrade-cta');
+  if (ctaEl) {
+    if (b.plan === 'free') {
+      ctaEl.style.display = '';
+      const optionsEl = document.getElementById('billing-plan-options');
+      if (optionsEl) {
+        optionsEl.innerHTML = b.availablePlans
+          .filter(p => p.key !== 'free')
+          .map(p => `
+            <div class="billing-plan-option">
+              <div class="billing-plan-option-name"><span class="plan-badge plan-badge-${p.key}">${p.label}</span></div>
+              <div class="billing-plan-option-price">$${p.price}/mo</div>
+              <div class="billing-plan-option-features">
+                Up to ${p.userLimit === null ? 'unlimited' : p.userLimit} users &bull;
+                Bulk checking &bull; Importing
+              </div>
+              <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="startCheckout('${p.key}')">Upgrade to ${p.label}</button>
+            </div>
+          `).join('');
+      }
+    } else {
+      ctaEl.style.display = 'none';
+    }
+  }
+
+  // States
+  renderBillingStates(b.states, b.plan);
+}
+
+function renderBillingStates(states, plan) {
+  const listEl = document.getElementById('billing-states-list');
+  if (!listEl) return;
+
+  if (states.length === 0) {
+    listEl.innerHTML = '<p class="hint" style="margin:0 0 8px">No states unlocked yet.</p>';
+  } else {
+    listEl.innerHTML = states.map(code => `
+      <span class="state-tag">
+        ${escapeHtml(code)}
+        <button class="state-tag-remove" onclick="removeBillingState('${escapeHtml(code)}')" title="Remove ${escapeHtml(code)}">×</button>
+      </span>
+    `).join('');
+  }
+
+  // Hide states card on free plan
+  const statesCard = document.getElementById('billing-states-card');
+  if (statesCard) {
+    statesCard.style.display = plan === 'free' ? 'none' : '';
+  }
+}
+
+async function addBillingState() {
+  const sel = document.getElementById('billing-state-select');
+  const code = sel ? sel.value : '';
+  if (!code) return;
+  try {
+    const res = await POST('/billing/states', { state: code });
+    currentPlan.states = res.states;
+    renderBillingStates(res.states, currentPlan.plan);
+    if (sel) sel.value = '';
+    showToast(`${code} added.`, 'success');
+    // Reload import list to reflect newly unlocked state
+    importCities = [];
+    await loadImportCities();
+  } catch (err) {
+    showToast('Failed to add state: ' + err.message, 'error');
+  }
+}
+
+async function removeBillingState(code) {
+  try {
+    const res = await api('DELETE', `/billing/states/${code}`);
+    currentPlan.states = res.states;
+    renderBillingStates(res.states, currentPlan.plan);
+    showToast(`${code} removed.`, 'success');
+    // Reload import list
+    importCities = [];
+    await loadImportCities();
+  } catch (err) {
+    showToast('Failed to remove state: ' + err.message, 'error');
+  }
+}
+
+document.addEventListener('click', e => {
+  if (e.target && e.target.id === 'btn-add-state') {
+    addBillingState();
+  }
+});
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 applyTheme(localStorage.getItem('theme') || 'dark');
@@ -1195,5 +1448,6 @@ checkAuth().then(() => {
   if (appShell.style.display !== 'none') {
     loadPermits();
     loadImportCities();
+    loadBilling();
   }
 });

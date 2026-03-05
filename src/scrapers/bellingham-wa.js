@@ -6,4 +6,5 @@ module.exports = createETRAKiTScraper({
   host:        'permits.cob.org',
   usernameEnv: 'BELLINGHAM_WA_USERNAME',
   passwordEnv: 'BELLINGHAM_WA_PASSWORD',
+  state:       'WA',
 });

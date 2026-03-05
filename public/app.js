@@ -41,6 +41,9 @@ let activeTabs      = new Set(['active', 'finaled', 'closed']); // all on = show
 let enabledScrapers = new Set(); // scraper_names currently checked in city filter
 let pendingDeleteId = null;
 
+// ── Current user context (set after /me) ──────────────────────────────────────
+let currentUser = null; // { id, username, role, isSuperAdmin }
+
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 const toastEl = document.getElementById('toast');
@@ -356,51 +359,90 @@ document.getElementById('search-input').addEventListener('input', e => {
   renderTable();
 });
 
-// ── Import from Everett ───────────────────────────────────────────────────────
+// ── Import dropdown ───────────────────────────────────────────────────────────
 
-const btnImport = document.getElementById('btn-import-everett');
-btnImport.addEventListener('click', async () => {
-  btnImport.classList.add('loading');
-  btnImport.disabled = true;
-  showToast('Importing permits from Everett portal…', 'info');
+let importCities = [];
+
+async function loadImportCities() {
   try {
-    const res = await POST('/import/everett');
-    showToast(
-      `Import complete: ${res.added} new, ${res.skipped} already tracked`,
-      'success'
-    );
-    await loadPermits();
+    importCities = await GET('/import/list');
+    const list = document.getElementById('import-city-list');
+    list.innerHTML = importCities.map(c => `
+      <li data-name="${escapeHtml(c.name)}" data-display="${escapeHtml(c.displayName)}">
+        <input type="checkbox" id="import-cb-${escapeHtml(c.name)}" />
+        <label for="import-cb-${escapeHtml(c.name)}">${escapeHtml(c.displayName)}</label>
+      </li>
+    `).join('');
+    list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', updateImportRunButton);
+    });
   } catch (err) {
-    showToast('Import failed: ' + err.message, 'error');
-  } finally {
-    btnImport.classList.remove('loading');
-    btnImport.disabled = false;
+    console.error('Failed to load import cities:', err);
+  }
+}
+
+function updateImportRunButton() {
+  const checked = document.querySelectorAll('#import-city-list input[type="checkbox"]:checked');
+  const btn = document.getElementById('btn-import-run');
+  btn.disabled = checked.length === 0;
+  btn.textContent = checked.length > 0 ? `Import Selected (${checked.length})` : 'Import Selected';
+}
+
+// Toggle dropdown
+const btnImportToggle = document.getElementById('btn-import');
+const importDropdown  = document.getElementById('import-dropdown');
+
+btnImportToggle.addEventListener('click', e => {
+  e.stopPropagation();
+  importDropdown.toggleAttribute('hidden');
+  if (!importDropdown.hasAttribute('hidden')) {
+    document.getElementById('import-search').focus();
   }
 });
 
-// ── Import from Bellingham ────────────────────────────────────────────────────
-
-const btnImportBellingham = document.getElementById('btn-import-bellingham');
-btnImportBellingham.addEventListener('click', async () => {
-  btnImportBellingham.classList.add('loading');
-  btnImportBellingham.disabled = true;
-  showToast('Importing permits from Bellingham portal…', 'info');
-  try {
-    const res  = await fetch('/api/import/bellingham', { method: 'POST' });
-    const data = await res.json();
-    if (data.logs && data.logs.length) console.log('[bellingham]\n' + data.logs.join('\n'));
-    if (!res.ok) {
-      showToast('Import failed: ' + (data.error || `HTTP ${res.status}`), 'error');
-    } else {
-      showToast(`Import complete: ${data.added} new, ${data.skipped} already tracked`, 'success');
-      await loadPermits();
-    }
-  } catch (err) {
-    showToast('Import failed: ' + err.message, 'error');
-  } finally {
-    btnImportBellingham.classList.remove('loading');
-    btnImportBellingham.disabled = false;
+// Close on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.import-wrap')) {
+    importDropdown.setAttribute('hidden', '');
   }
+});
+
+// Search filter
+document.getElementById('import-search').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('#import-city-list li').forEach(li => {
+    const display = li.dataset.display.toLowerCase();
+    li.style.display = display.includes(q) ? '' : 'none';
+  });
+});
+
+// Run import
+document.getElementById('btn-import-run').addEventListener('click', async () => {
+  const checked = [...document.querySelectorAll('#import-city-list input[type="checkbox"]:checked')];
+  if (checked.length === 0) return;
+
+  const cities = checked.map(cb => {
+    const li = cb.closest('li');
+    return { name: li.dataset.name, displayName: li.dataset.display };
+  });
+
+  importDropdown.setAttribute('hidden', '');
+  // Uncheck all
+  document.querySelectorAll('#import-city-list input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  updateImportRunButton();
+
+  for (const city of cities) {
+    showToast(`Importing from ${city.displayName}…`, 'info');
+    try {
+      const res = await POST(`/import/${city.name}`);
+      if (res.logs && res.logs.length) console.log(`[${city.name}]\n` + res.logs.join('\n'));
+      showToast(`${city.displayName}: ${res.added} new, ${res.skipped} already tracked`, 'success');
+    } catch (err) {
+      showToast(`${city.displayName} import failed: ` + err.message, 'error');
+    }
+  }
+
+  await loadPermits();
 });
 
 // ── Check All ─────────────────────────────────────────────────────────────────
@@ -706,13 +748,31 @@ async function checkAuth() {
       return r.json();
     });
     // Authenticated — show app
+    currentUser = user;
     loginScreen.style.display = 'none';
     appShell.style.display = '';
     document.getElementById('sidebar-username').textContent = user.username;
+    applyRoleVisibility(user);
   } catch (_) {
     // Not authenticated — show login
     appShell.style.display = 'none';
     loginScreen.style.display = '';
+  }
+}
+
+function applyRoleVisibility(user) {
+  // Show/hide Users sub-tab based on role
+  const usersBtn = document.getElementById('subtab-btn-users');
+  const tenantsBtn = document.getElementById('subtab-btn-tenants');
+  if (user.role === 'admin' || user.isSuperAdmin) {
+    usersBtn.style.display = '';
+  } else {
+    usersBtn.style.display = 'none';
+  }
+  if (user.isSuperAdmin) {
+    tenantsBtn.style.display = '';
+  } else {
+    tenantsBtn.style.display = 'none';
   }
 }
 
@@ -740,7 +800,10 @@ document.getElementById('login-form').addEventListener('submit', async e => {
       return;
     }
     await checkAuth();
-    loadPermits();
+    if (appShell.style.display !== 'none') {
+      loadPermits();
+      loadImportCities();
+    }
   } catch (err) {
     errorEl.textContent = 'Network error — please try again';
     errorEl.style.display = 'block';
@@ -755,6 +818,373 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   window.location.reload();
 });
 
+// ── Settings Sub-tabs ─────────────────────────────────────────────────────────
+
+document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.subtab;
+    document.querySelectorAll('.sub-tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`subtab-${tab}`).classList.add('active');
+
+    if (tab === 'users') loadUsers();
+    if (tab === 'tenants') loadTenants();
+    if (tab === 'general') loadSettings();
+  });
+});
+
+// ── Change My Password ────────────────────────────────────────────────────────
+
+document.getElementById('btn-change-password').addEventListener('click', () => {
+  document.getElementById('change-password-form').reset();
+  document.getElementById('change-password-msg').style.display = 'none';
+  openModal('modal-change-password');
+});
+
+document.getElementById('change-password-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const currentPassword = document.getElementById('change-current-password').value;
+  const newPassword     = document.getElementById('change-new-password').value;
+  const msgEl = document.getElementById('change-password-msg');
+  const btn   = e.target.querySelector('[type="submit"]');
+
+  msgEl.style.display = 'none';
+  btn.disabled = true;
+  try {
+    await POST('/auth/change-password', { currentPassword, newPassword });
+    msgEl.textContent = 'Password updated successfully.';
+    msgEl.className = 'form-msg success';
+    msgEl.style.display = 'block';
+    setTimeout(() => closeModal('modal-change-password'), 1500);
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className = 'form-msg error';
+    msgEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+
+let allUsers = [];
+let pendingDeleteUserId = null;
+let allTenantsCache = [];
+
+async function loadUsers() {
+  try {
+    allUsers = await GET('/users');
+    renderUsersTable();
+  } catch (err) {
+    showToast('Failed to load users: ' + err.message, 'error');
+  }
+}
+
+function renderUsersTable() {
+  const tbody = document.getElementById('users-tbody');
+  const thTenant = document.getElementById('users-th-tenant');
+
+  // Show tenant column only for super-admins
+  if (currentUser?.isSuperAdmin) {
+    thTenant.style.display = '';
+  }
+
+  if (!allUsers.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-msg">No users found.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = allUsers.map(u => {
+    const roleBadge = u.role === 'admin'
+      ? `<span class="badge badge-admin">Admin</span>`
+      : `<span class="badge badge-user">User</span>`;
+    const statusBadge = u.active
+      ? `<span class="badge badge-active">Active</span>`
+      : `<span class="badge badge-inactive">Inactive</span>`;
+    const isSelf = currentUser && u.id === currentUser.id;
+    const tenantCell = currentUser?.isSuperAdmin
+      ? `<td>${escapeHtml(u.tenant_name || u.tenant_slug || String(u.tenant_id))}</td>`
+      : '';
+
+    return `
+      <tr>
+        <td><strong>${escapeHtml(u.username)}</strong>${isSelf ? ' <span class="hint">(you)</span>' : ''}</td>
+        <td>${escapeHtml([u.first_name, u.last_name].filter(Boolean).join(' ')) || '—'}</td>
+        <td>${escapeHtml(u.email) || '—'}</td>
+        <td>${roleBadge}</td>
+        <td>${statusBadge}</td>
+        ${tenantCell}
+        <td style="color:var(--text-muted);font-size:.8rem">${formatDate(u.last_login)}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn-icon-sm" onclick="openEditUserModal(${u.id})" title="Edit">${ICONS.pencil}</button>
+            <button class="btn-icon-sm" onclick="openResetPasswordModal(${u.id})" title="Reset password">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </button>
+            ${!isSelf ? `<button class="btn-icon-sm danger" onclick="confirmDeleteUser(${u.id})" title="Delete">${ICONS.trash}</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+document.getElementById('btn-add-user').addEventListener('click', () => openAddUserModal());
+
+function openAddUserModal() {
+  document.getElementById('modal-user-title').textContent = 'Add User';
+  document.getElementById('user-submit-btn').textContent = 'Add User';
+  document.getElementById('user-id').value = '';
+  document.getElementById('user-form').reset();
+  document.getElementById('user-active').checked = true;
+  document.getElementById('user-password-group').style.display = '';
+  document.getElementById('user-form-msg').style.display = 'none';
+
+  // Tenant picker: only for super-admin
+  setupUserTenantPicker(null);
+  openModal('modal-user');
+}
+
+async function setupUserTenantPicker(selectedTenantId) {
+  const group = document.getElementById('user-tenant-group');
+  const sel   = document.getElementById('user-tenant-id');
+  if (!currentUser?.isSuperAdmin) {
+    group.style.display = 'none';
+    return;
+  }
+  group.style.display = '';
+  // Load tenants if not cached
+  if (!allTenantsCache.length) {
+    try { allTenantsCache = await GET('/tenants'); } catch (_) {}
+  }
+  sel.innerHTML = allTenantsCache.map(t =>
+    `<option value="${t.id}" ${selectedTenantId === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
+  ).join('');
+}
+
+function openEditUserModal(id) {
+  const u = allUsers.find(x => x.id === id);
+  if (!u) return;
+  document.getElementById('modal-user-title').textContent = 'Edit User';
+  document.getElementById('user-submit-btn').textContent = 'Save Changes';
+  document.getElementById('user-id').value = id;
+  document.getElementById('user-username').value   = u.username || '';
+  document.getElementById('user-first-name').value = u.first_name || '';
+  document.getElementById('user-last-name').value  = u.last_name || '';
+  document.getElementById('user-email').value      = u.email || '';
+  document.getElementById('user-role').value       = u.role || 'user';
+  document.getElementById('user-active').checked   = Boolean(u.active);
+  document.getElementById('user-password-group').style.display = 'none'; // no password on edit
+  document.getElementById('user-form-msg').style.display = 'none';
+  setupUserTenantPicker(u.tenant_id);
+  openModal('modal-user');
+}
+
+document.getElementById('user-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id        = document.getElementById('user-id').value;
+  const username  = document.getElementById('user-username').value.trim();
+  const password  = document.getElementById('user-password').value;
+  const firstName = document.getElementById('user-first-name').value.trim();
+  const lastName  = document.getElementById('user-last-name').value.trim();
+  const email     = document.getElementById('user-email').value.trim();
+  const role      = document.getElementById('user-role').value;
+  const active    = document.getElementById('user-active').checked;
+  const tenantId  = document.getElementById('user-tenant-id').value;
+  const msgEl     = document.getElementById('user-form-msg');
+  const btn       = document.getElementById('user-submit-btn');
+
+  msgEl.style.display = 'none';
+  btn.disabled = true;
+
+  try {
+    if (id) {
+      // Edit
+      const body = { username, first_name: firstName, last_name: lastName, email, role, active };
+      await PUT(`/users/${id}`, body);
+      showToast('User updated.', 'success');
+    } else {
+      // Add
+      const body = { username, password, first_name: firstName, last_name: lastName, email, role };
+      if (currentUser?.isSuperAdmin && tenantId) body.tenant_id = Number(tenantId);
+      await POST('/users', body);
+      showToast('User created.', 'success');
+    }
+    closeModal('modal-user');
+    await loadUsers();
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className = 'form-msg error';
+    msgEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Reset Password ────────────────────────────────────────────────────────────
+
+function openResetPasswordModal(userId) {
+  const u = allUsers.find(x => x.id === userId);
+  document.getElementById('reset-password-user-id').value = userId;
+  document.getElementById('reset-password-msg-text').textContent =
+    `Set a new password for ${u ? escapeHtml(u.username) : 'this user'}.`;
+  document.getElementById('reset-password-form').reset();
+  document.getElementById('reset-password-err').style.display = 'none';
+  openModal('modal-reset-password');
+}
+
+document.getElementById('reset-password-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id          = document.getElementById('reset-password-user-id').value;
+  const newPassword = document.getElementById('reset-password-new').value;
+  const errEl = document.getElementById('reset-password-err');
+  const btn   = e.target.querySelector('[type="submit"]');
+
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  try {
+    await POST(`/users/${id}/reset-password`, { newPassword });
+    showToast('Password reset successfully.', 'success');
+    closeModal('modal-reset-password');
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ── Delete User ───────────────────────────────────────────────────────────────
+
+function confirmDeleteUser(id) {
+  const u = allUsers.find(x => x.id === id);
+  pendingDeleteUserId = id;
+  document.getElementById('delete-user-msg').textContent =
+    `Delete user "${u?.username}"? This cannot be undone.`;
+  openModal('modal-delete-user');
+}
+
+document.getElementById('btn-confirm-delete-user').addEventListener('click', async () => {
+  if (!pendingDeleteUserId) return;
+  try {
+    await DELETE(`/users/${pendingDeleteUserId}`);
+    showToast('User deleted.', 'success');
+    closeModal('modal-delete-user');
+    await loadUsers();
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+  pendingDeleteUserId = null;
+});
+
+// ── Tenants ───────────────────────────────────────────────────────────────────
+
+let allTenants = [];
+let pendingDeleteTenantId = null;
+
+async function loadTenants() {
+  try {
+    allTenants = await GET('/tenants');
+    allTenantsCache = allTenants; // keep cache in sync
+    renderTenantsTable();
+  } catch (err) {
+    showToast('Failed to load tenants: ' + err.message, 'error');
+  }
+}
+
+function renderTenantsTable() {
+  const tbody = document.getElementById('tenants-tbody');
+  if (!allTenants.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-msg">No tenants found.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = allTenants.map(t => `
+    <tr>
+      <td><strong>${escapeHtml(t.name)}</strong></td>
+      <td><code style="font-size:.8rem;background:var(--surface2);padding:2px 7px;border-radius:4px">${escapeHtml(t.slug)}</code></td>
+      <td style="color:var(--text-muted);font-size:.8rem">${formatDate(t.created_at)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn-icon-sm" onclick="openEditTenantModal(${t.id})" title="Edit">${ICONS.pencil}</button>
+          ${t.id !== 1 ? `<button class="btn-icon-sm danger" onclick="confirmDeleteTenant(${t.id})" title="Delete">${ICONS.trash}</button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+document.getElementById('btn-add-tenant').addEventListener('click', () => {
+  document.getElementById('modal-tenant-title').textContent = 'Add Tenant';
+  document.getElementById('tenant-submit-btn').textContent = 'Add Tenant';
+  document.getElementById('tenant-id').value = '';
+  document.getElementById('tenant-form').reset();
+  document.getElementById('tenant-form-msg').style.display = 'none';
+  openModal('modal-tenant');
+});
+
+function openEditTenantModal(id) {
+  const t = allTenants.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('modal-tenant-title').textContent = 'Edit Tenant';
+  document.getElementById('tenant-submit-btn').textContent = 'Save Changes';
+  document.getElementById('tenant-id').value   = id;
+  document.getElementById('tenant-name').value = t.name || '';
+  document.getElementById('tenant-slug').value = t.slug || '';
+  document.getElementById('tenant-form-msg').style.display = 'none';
+  openModal('modal-tenant');
+}
+
+document.getElementById('tenant-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id   = document.getElementById('tenant-id').value;
+  const name = document.getElementById('tenant-name').value.trim();
+  const slug = document.getElementById('tenant-slug').value.trim();
+  const msgEl = document.getElementById('tenant-form-msg');
+  const btn   = document.getElementById('tenant-submit-btn');
+
+  msgEl.style.display = 'none';
+  btn.disabled = true;
+  try {
+    if (id) {
+      await PUT(`/tenants/${id}`, { name, slug });
+      showToast('Tenant updated.', 'success');
+    } else {
+      await POST('/tenants', { name, slug });
+      showToast('Tenant created.', 'success');
+    }
+    closeModal('modal-tenant');
+    await loadTenants();
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className = 'form-msg error';
+    msgEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function confirmDeleteTenant(id) {
+  const t = allTenants.find(x => x.id === id);
+  pendingDeleteTenantId = id;
+  document.getElementById('delete-tenant-msg').textContent =
+    `Delete tenant "${t?.name}"? This removes all its users, permits, and history. This cannot be undone.`;
+  openModal('modal-delete-tenant');
+}
+
+document.getElementById('btn-confirm-delete-tenant').addEventListener('click', async () => {
+  if (!pendingDeleteTenantId) return;
+  try {
+    await DELETE(`/tenants/${pendingDeleteTenantId}`);
+    showToast('Tenant deleted.', 'success');
+    closeModal('modal-delete-tenant');
+    await loadTenants();
+  } catch (err) {
+    showToast('Delete failed: ' + err.message, 'error');
+  }
+  pendingDeleteTenantId = null;
+});
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 applyTheme(localStorage.getItem('theme') || 'dark');
@@ -764,5 +1194,6 @@ updateTabHighlights();
 checkAuth().then(() => {
   if (appShell.style.display !== 'none') {
     loadPermits();
+    loadImportCities();
   }
 });

@@ -6,7 +6,7 @@ const { listScrapers } = require('../scrapers/index');
 // POST /api/check — trigger check for all active permits
 router.post('/', async (req, res) => {
   try {
-    const results = await checkAllPermits();
+    const results = await checkAllPermits(req.tenantId);
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -17,7 +17,7 @@ router.post('/', async (req, res) => {
 router.post('/:id', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const result = await checkPermit(id);
+    const result = await checkPermit(id, req.tenantId);
     res.json(result);
   } catch (err) {
     if (err.message.includes('not found')) {

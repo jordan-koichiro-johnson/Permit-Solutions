@@ -34,7 +34,6 @@
  * ──────────────────────────────────────────────────────────────────────────
  */
 
-const { chromium } = require('playwright');
 const BasePermitScraper = require('./base');
 
 class ExampleCityScraper extends BasePermitScraper {

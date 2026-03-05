@@ -5,9 +5,9 @@ const { sendTestEmail } = require('../services/notifier');
 const scheduler = require('../services/scheduler');
 
 // GET /api/settings — get all settings
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const settings = queries.getAllSettings();
+    const settings = await queries.getAllSettings(req.tenantId);
     // Mask SMTP password in response
     const safe = { ...settings };
     if (safe.smtp_pass && safe.smtp_pass.length > 0) {
@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
 });
 
 // PUT /api/settings — update settings
-router.put('/', (req, res) => {
+router.put('/', async (req, res) => {
   try {
     const allowed = [
       'check_interval_hours',
@@ -41,14 +41,14 @@ router.put('/', (req, res) => {
       }
     }
 
-    queries.updateSettings(updates);
+    await queries.updateSettings(req.tenantId, updates);
 
     // Restart scheduler if interval changed
     if (updates.check_interval_hours) {
-      scheduler.restart();
+      await scheduler.restart();
     }
 
-    const settings = queries.getAllSettings();
+    const settings = await queries.getAllSettings(req.tenantId);
     const safe = { ...settings };
     if (safe.smtp_pass && safe.smtp_pass.length > 0) {
       safe.smtp_pass = '••••••••';
@@ -62,7 +62,7 @@ router.put('/', (req, res) => {
 // POST /api/settings/test-email — send a test email
 router.post('/test-email', async (req, res) => {
   try {
-    await sendTestEmail();
+    await sendTestEmail(req.tenantId);
     res.json({ success: true, message: 'Test email sent successfully.' });
   } catch (err) {
     res.status(500).json({ error: err.message });

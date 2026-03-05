@@ -10,7 +10,14 @@
  *  - Unique across all scrapers
  */
 const scrapers = {
-  'example-city': require('./example-city'),
+  'example-city':            require('./example-city'),
+  'bellingham-wa':           require('./bellingham-wa'),
+  'everett-wa':              require('./everett-wa'),
+  'shoreline-wa':            require('./shoreline-wa'),
+  'walla-walla-county-wa':   require('./walla-walla-county-wa'),
+  'pasco-wa':                require('./pasco-wa'),
+  'marysville-wa':           require('./marysville-wa'),
+  'lacey-wa':                require('./lacey-wa'),
 };
 
 /**

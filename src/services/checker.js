@@ -17,10 +17,11 @@ const notifier = require('./notifier');
 /**
  * Check a single permit by ID.
  * @param {number} permitId
+ * @param {number} tenantId
  * @returns {Promise<{ changed: boolean, permit: object, result: object, error?: string }>}
  */
-async function checkPermit(permitId) {
-  const permit = queries.getPermitById(permitId);
+async function checkPermit(permitId, tenantId) {
+  const permit = await queries.getPermitById(permitId, tenantId);
   if (!permit) throw new Error(`Permit ${permitId} not found`);
 
   let scrapeResult;
@@ -34,13 +35,14 @@ async function checkPermit(permitId) {
     console.error(`[checker] Error scraping permit #${permit.id} (${permit.permit_number}):`, err.message);
 
     // Still record the failed attempt in history
-    queries.addHistoryEntry({
+    await queries.addHistoryEntry({
+      tenant_id: tenantId,
       permit_id: permit.id,
       status: 'Error',
       raw_details: { error: err.message },
-      status_changed: 0,
+      status_changed: false,
     });
-    queries.touchPermitChecked(permit.id);
+    await queries.touchPermitChecked(permit.id, tenantId);
 
     return { changed: false, permit, result: null, error: errorMsg };
   }
@@ -50,7 +52,8 @@ async function checkPermit(permitId) {
   const changed = oldStatus !== newStatus;
 
   // Record in history
-  queries.addHistoryEntry({
+  await queries.addHistoryEntry({
+    tenant_id: tenantId,
     permit_id: permit.id,
     status: newStatus,
     raw_details: { ...scrapeResult.details, url: scrapeResult.url },
@@ -58,22 +61,26 @@ async function checkPermit(permitId) {
   });
 
   if (changed) {
-    queries.updatePermitStatus(permit.id, newStatus);
+    await queries.updatePermitStatus(permit.id, newStatus, tenantId);
   } else {
-    queries.touchPermitChecked(permit.id);
+    await queries.touchPermitChecked(permit.id, tenantId);
   }
 
-  const updatedPermit = queries.getPermitById(permit.id);
+  const updatedPermit = await queries.getPermitById(permit.id, tenantId);
   return { changed, permit: updatedPermit, result: scrapeResult, oldStatus };
 }
 
 /**
  * Check all active permits.
  * Sends a notification email if any statuses changed.
+ * @param {number|null} tenantId — if set, only that tenant's permits; if null, all tenants
  * @returns {Promise<{ total: number, checked: number, changed: number, errors: number, changes: Array }>}
  */
-async function checkAllPermits() {
-  const permits = queries.getActivePermits();
+async function checkAllPermits(tenantId = null) {
+  const permits = tenantId
+    ? await queries.getActivePermits(tenantId)
+    : await queries.getAllActivePermits();
+
   console.log(`[checker] Starting check for ${permits.length} active permit(s)…`);
 
   const results = {
@@ -85,8 +92,9 @@ async function checkAllPermits() {
   };
 
   for (const permit of permits) {
+    const tid = tenantId ?? permit.tenant_id;
     try {
-      const outcome = await checkPermit(permit.id);
+      const outcome = await checkPermit(permit.id, tid);
       results.checked++;
 
       if (outcome.error) {

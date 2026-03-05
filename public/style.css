@@ -758,6 +758,99 @@ td { padding: 11px 16px; font-size: .85rem; vertical-align: middle; }
   background: rgba(239,68,68,.1);
 }
 
+/* ── Import dropdown ─────────────────────────────────────────────────────── */
+.import-wrap { position: relative; }
+
+.import-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.import-search {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: .85rem;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+.import-search::placeholder { color: var(--text-muted); }
+
+.import-city-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.import-city-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: .85rem;
+}
+.import-city-list li:hover { background: var(--surface2); }
+.import-city-list li label { cursor: pointer; flex: 1; }
+.import-city-list li input[type="checkbox"] { cursor: pointer; accent-color: var(--primary); }
+
+.import-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+}
+.import-footer .btn { width: 100%; justify-content: center; }
+
+/* ── Sub-tab nav (Settings page) ────────────────────────────────────────── */
+.sub-tab-nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.sub-tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  margin-bottom: -1px;
+  padding: 8px 16px;
+  transition: color .15s, border-color .15s;
+}
+.sub-tab-btn:hover { color: var(--text); }
+.sub-tab-btn.active {
+  border-bottom-color: var(--primary);
+  color: var(--primary);
+}
+
+.subtab-content { display: none; }
+.subtab-content.active { display: block; }
+
+/* ── User/Tenant badges ──────────────────────────────────────────────────── */
+.badge-admin    { background: rgba(59,130,246,.12);  color: var(--primary);   border-color: rgba(59,130,246,.3); }
+.badge-user     { background: rgba(148,163,184,.08); color: var(--text-muted); border-color: rgba(148,163,184,.2); }
+.badge-active   { background: rgba(34,197,94,.12);   color: var(--success);   border-color: rgba(34,197,94,.3); }
+.badge-inactive { background: rgba(239,68,68,.10);   color: var(--danger);    border-color: rgba(239,68,68,.25); }
+
 /* ── Active toggle chip ──────────────────────────────────────────────────── */
 .active-chip {
   display: inline-block;

@@ -14,7 +14,7 @@ const queries = require('../db/queries');
 /**
  * Build an xlsx workbook with two sheets:
  *  - "Changes"    — one row per changed permit
- *  - "All Permits" — full snapshot
+ *  - "All Permits" — full snapshot (all tenants)
  *
  * @param {Array} changes  Array of { permit, oldStatus, newStatus, result }
  * @returns {Promise<string>} Path to the temp .xlsx file
@@ -71,7 +71,8 @@ async function buildExcelReport(changes) {
   allHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   allHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
 
-  const allPermits = queries.getAllPermits();
+  // Use cross-tenant query for the snapshot sheet
+  const allPermits = await queries.getAllActivePermits();
   for (const p of allPermits) {
     allSheet.addRow({
       id:             p.id,
@@ -101,7 +102,9 @@ async function buildExcelReport(changes) {
  * @param {Array} changes
  */
 async function sendChangeReport(changes) {
-  const settings = queries.getAllSettings();
+  // Derive tenantId from the first change's permit, fall back to 1
+  const tenantId = changes[0]?.permit?.tenant_id ?? 1;
+  const settings = await queries.getAllSettings(tenantId);
 
   const { smtp_host, smtp_port, smtp_user, smtp_pass, email_from, email_to } = settings;
 
@@ -174,9 +177,10 @@ async function sendChangeReport(changes) {
 
 /**
  * Send a test email to verify SMTP config.
+ * @param {number} [tenantId=1]
  */
-async function sendTestEmail() {
-  const settings = queries.getAllSettings();
+async function sendTestEmail(tenantId = 1) {
+  const settings = await queries.getAllSettings(tenantId);
   const { smtp_host, smtp_port, smtp_user, smtp_pass, email_from, email_to } = settings;
 
   if (!smtp_host || !email_to) {

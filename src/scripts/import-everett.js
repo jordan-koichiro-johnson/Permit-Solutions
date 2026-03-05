@@ -21,5 +21,5 @@ const { run } = createImporter({
 module.exports = { run };
 
 if (require.main === module) {
-  run().catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
+  run(1).catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
 }

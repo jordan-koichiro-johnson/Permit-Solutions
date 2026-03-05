@@ -14,10 +14,6 @@ let currentInterval = null;
 
 // Convert hours to a cron expression.
 // Supports fractional hours down to 1 minute.
-// Examples:
-//   1   → every 1 hour  → '0 * /1 * * *'  (without space)
-//   4   → every 4 hours → '0 * /4 * * *'  (without space)
-//   0.5 → every 30 mins → '* /30 * * * *' (without space)
 function hoursToCron(hours) {
   const h = parseFloat(hours);
   if (!h || h <= 0) return '0 */4 * * *'; // default 4 hours
@@ -38,8 +34,9 @@ function hoursToCron(hours) {
  * Start the cron scheduler.
  * If already running, stops the previous job first.
  */
-function start() {
-  const intervalHours = getSetting('check_interval_hours') || '4';
+async function start() {
+  // Use tenant_id=1 for system-level scheduler settings
+  const intervalHours = await getSetting(1, 'check_interval_hours') || '4';
   const expression = hoursToCron(intervalHours);
   currentInterval = intervalHours;
 
@@ -74,9 +71,9 @@ function stop() {
 /**
  * Restart the scheduler (e.g. after settings change).
  */
-function restart() {
+async function restart() {
   stop();
-  start();
+  await start();
 }
 
 /**

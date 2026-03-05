@@ -96,6 +96,7 @@ async function initDb() {
   // Seed default settings for tenant 1
   const defaults = {
     check_interval_hours: '4',
+    contractor_name: '',
     email_to: '',
     email_from: '',
     smtp_host: 'smtp.gmail.com',

@@ -6,7 +6,6 @@ const { run } = createImporter({
   host:       'permits.cob.org',
   username:   process.env.BELLINGHAM_WA_USERNAME,
   password:   process.env.BELLINGHAM_WA_PASSWORD,
-  searchName: 'FAST WATER HEATER',
   envLabel:   'BELLINGHAM_WA',
   columns: {
     permitNumber: 'Permit #',
@@ -21,5 +20,7 @@ const { run } = createImporter({
 module.exports = { run };
 
 if (require.main === module) {
-  run(1).catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
+  const searchName = process.env.CONTRACTOR_NAME;
+  if (!searchName) { console.error('Set CONTRACTOR_NAME in .env'); process.exit(1); }
+  run(1, console.log, searchName).catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
 }

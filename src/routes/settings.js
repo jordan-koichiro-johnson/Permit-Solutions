@@ -24,6 +24,7 @@ router.put('/', async (req, res) => {
   try {
     const allowed = [
       'check_interval_hours',
+      'contractor_name',
       'email_to',
       'email_from',
       'smtp_host',

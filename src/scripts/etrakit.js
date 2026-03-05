@@ -79,7 +79,7 @@ function parseCSV(text, permitNumberCol) {
 // ── Factory ───────────────────────────────────────────────────────────────────
 
 function createImporter(config) {
-  const { host, username, password, searchName, envLabel, columns, city, scraperName } = config;
+  const { host, username, password, envLabel, columns, city, scraperName } = config;
 
   // Each importer gets its own isolated cookie jar
   const cookies = {};
@@ -167,7 +167,7 @@ function createImporter(config) {
 
   // ── Search + CSV export ────────────────────────────────────────────────────
 
-  async function fetchAllPermitsCSV(log) {
+  async function fetchAllPermitsCSV(searchName, log) {
     log(`Searching for contractor: "${searchName}"...`);
 
     const searchPage = await get('/eTRAKiT/Search/permit.aspx');
@@ -239,10 +239,11 @@ function createImporter(config) {
 
   // ── Main ───────────────────────────────────────────────────────────────────
 
-  async function run(tenantId, log = console.log) {
+  async function run(tenantId, log = console.log, searchName) {
+    if (!searchName) throw new Error('contractor_name is required — set it in Settings before importing.');
     Object.keys(cookies).forEach(k => delete cookies[k]);
     await login(log);
-    const permits = await fetchAllPermitsCSV(log);
+    const permits = await fetchAllPermitsCSV(searchName, log);
     return importPermits(permits, tenantId, log);
   }
 

@@ -7,7 +7,7 @@
  *   - Export:      standard ctl00$cplMain$btnExportToExcel __EVENTTARGET
  *
  * Required env vars: MARYSVILLE_WA_USERNAME, MARYSVILLE_WA_PASSWORD
- * Optional env var:  MARYSVILLE_WA_SEARCH (contractor name, default 'FAST WATER HEATER')
+ * CLI usage: set CONTRACTOR_NAME in .env
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
@@ -126,10 +126,10 @@ function parseCSV(text) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 
-async function run(tenantId, log = console.log) {
-  const username   = process.env.MARYSVILLE_WA_USERNAME;
-  const password   = process.env.MARYSVILLE_WA_PASSWORD;
-  const searchName = process.env.MARYSVILLE_WA_SEARCH || 'FAST WATER HEATER';
+async function run(tenantId, log = console.log, searchName) {
+  const username = process.env.MARYSVILLE_WA_USERNAME;
+  const password = process.env.MARYSVILLE_WA_PASSWORD;
+  if (!searchName) throw new Error('contractor_name is required — set it in Settings before importing.');
 
   if (!username || !password) {
     throw new Error('MARYSVILLE_WA_USERNAME and MARYSVILLE_WA_PASSWORD must be set in .env');
@@ -219,5 +219,7 @@ async function run(tenantId, log = console.log) {
 module.exports = { run };
 
 if (require.main === module) {
-  run(1).catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
+  const searchName = process.env.CONTRACTOR_NAME;
+  if (!searchName) { console.error('Set CONTRACTOR_NAME in .env'); process.exit(1); }
+  run(1, console.log, searchName).catch(err => { console.error('Fatal error:', err.message); process.exit(1); });
 }
